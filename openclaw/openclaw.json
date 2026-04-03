@@ -1,0 +1,24 @@
+{
+  "gateway": {
+    "bind": "lan",
+    "mode": "local",
+    "auth": {
+      "mode": "token"
+    }
+  },
+  "models": {
+    "providers": {
+      "litellm": {
+        "baseUrl": "http://openclaw-litellm:4000/v1",
+        "apiKey": "not-needed",
+        "api": "openai-responses",
+        "models": [
+          {
+            "id": "agent-reasoner",
+            "name": "Qwen3.5-27B (via llama-swap)"
+          }
+        ]
+      }
+    }
+  }
+}

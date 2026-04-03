@@ -1,2 +1,7 @@
 **/.env
 *.log
+workspace/
+openclaw/agents/
+openclaw/canvas/
+openclaw/openclaw.json.bak
+openclaw/sessions/
