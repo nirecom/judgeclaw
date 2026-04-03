@@ -3,5 +3,10 @@
 workspace/
 openclaw/agents/
 openclaw/canvas/
+openclaw/devices/
+openclaw/identity/
+openclaw/logs/
 openclaw/openclaw.json.bak
 openclaw/sessions/
+openclaw/tasks/
+openclaw/update-check.json
