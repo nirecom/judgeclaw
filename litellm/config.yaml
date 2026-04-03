@@ -1,0 +1,17 @@
+model_list:
+  - model_name: agent-reasoner
+    litellm_params:
+      model: os.environ/AGENT_MODEL
+      api_base: os.environ/LLAMA_SERVER_URL
+      api_key: "not-needed"
+      timeout: 120
+
+router_settings:
+  num_retries: 1
+  timeout: 120
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+litellm_settings:
+  drop_params: true
