@@ -1,10 +1,17 @@
 model_list:
   - model_name: agent-reasoner
     litellm_params:
-      model: os.environ/AGENT_MODEL
+      model: os.environ/REASONER_LOCAL_MODEL
       api_base: os.environ/LLAMA_SERVER_URL
       api_key: "not-needed"
       timeout: 120
+
+  - model_name: judge
+    litellm_params:
+      model: os.environ/JUDGE_LOCAL_MODEL
+      api_base: os.environ/LLAMA_SERVER_URL
+      api_key: "not-needed"
+      timeout: 30
 
 router_settings:
   num_retries: 1

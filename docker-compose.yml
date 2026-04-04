@@ -1,23 +1,65 @@
+networks:
+  openclaw-internal:
+    internal: true
+  openclaw-external: {}
+
 services:
+  openclaw-ingress:
+    image: nginx:alpine
+    container_name: openclaw-ingress
+    restart: unless-stopped
+    ports:
+      - "${OPENCLAW_PORT:-18789}:18789"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - openclaw-internal
+      - openclaw-external
+    depends_on:
+      - openclaw-agent
+
   openclaw-agent:
     image: ghcr.io/openclaw/openclaw:latest
     container_name: openclaw-agent
     user: "1000:1000"
     restart: unless-stopped
-    ports:
-      - "${OPENCLAW_PORT:-18789}:18789"
     environment:
       - HOME=/home/node
       - TERM=xterm-256color
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
-      - OPENAI_BASE_URL=http://openclaw-litellm:4000/v1
+      - OPENAI_BASE_URL=http://openclaw-bridge:8080/v1
       - OPENAI_API_KEY=not-needed
     volumes:
       - ./openclaw:/home/node/.openclaw
       - ./workspace:/home/node/.openclaw/workspace
+    networks:
+      - openclaw-internal
+    depends_on:
+      openclaw-bridge:
+        condition: service_healthy
+
+  openclaw-bridge:
+    build: ./bridge
+    container_name: openclaw-bridge
+    restart: unless-stopped
+    environment:
+      - LITELLM_URL=http://openclaw-litellm:4000
+      - JUDGE_MODEL_NAME=judge
+      - LOG_DIR=/var/log/openclaw
+    volumes:
+      - ./logs:/var/log/openclaw
+    networks:
+      - openclaw-internal
+      - openclaw-external
     depends_on:
       openclaw-litellm:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+        "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
 
   openclaw-litellm:
     image: docker.litellm.ai/berriai/litellm:main-stable
@@ -27,13 +69,41 @@ services:
       - "127.0.0.1:${LITELLM_PORT:-4100}:4000"
     environment:
       - LLAMA_SERVER_URL=${LLAMA_SERVER_URL}
-      - AGENT_MODEL=${AGENT_MODEL}
+      - REASONER_LOCAL_MODEL=${REASONER_LOCAL_MODEL}
+      - JUDGE_LOCAL_MODEL=${JUDGE_LOCAL_MODEL:-openai/Qwen2.5-7B-Instruct-Q4_K_M}
     volumes:
       - ./litellm/config.yaml:/app/config.yaml:ro
     command: ["--config", "/app/config.yaml"]
+    networks:
+      - openclaw-external
     healthcheck:
       test: ["CMD", "python", "-c",
         "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/readiness')"]
       interval: 30s
       timeout: 10s
       retries: 3
+
+  openclaw-squid:
+    image: ubuntu/squid:latest
+    container_name: openclaw-squid
+    restart: unless-stopped
+    volumes:
+      - ./squid/squid.conf:/etc/squid/squid.conf:ro
+      - ./squid/whitelist.txt:/etc/squid/whitelist.txt:ro
+    networks:
+      - openclaw-external
+
+  openclaw-sandbox:
+    image: ghcr.io/openclaw/openclaw:latest
+    container_name: openclaw-sandbox
+    user: "1000:1000"
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    network_mode: "none"
+    command: ["sleep", "infinity"]
