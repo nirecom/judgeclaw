@@ -1,5 +1,8 @@
 **/.env
 *.log
+__pycache__/
+.venv/
+.pytest_cache/
 workspace/
 openclaw/agents/
 openclaw/canvas/

@@ -17,7 +17,7 @@ logger = logging.getLogger("bridge")
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://openclaw-litellm:4000")
 LOG_DIR = os.environ.get("LOG_DIR", "/var/log/openclaw")
 
-INSPECTED_PATHS = {"/v1/chat/completions", "/v1/completions"}
+INSPECTED_PATHS = {"/v1/chat/completions", "/v1/completions", "/v1/responses"}
 
 
 @asynccontextmanager
@@ -33,13 +33,19 @@ app = FastAPI(lifespan=lifespan)
 def extract_text(body: dict) -> str:
     """Extract text content from LLM request body for inspection."""
     parts = []
-    for msg in body.get("messages", []):
+    inp = body.get("input")
+    if isinstance(inp, str):
+        parts.append(inp)
+    msgs = body.get("messages") or body.get("input") or []
+    if not isinstance(msgs, list):
+        msgs = []
+    for msg in msgs:
         content = msg.get("content", "")
         if isinstance(content, str):
             parts.append(content)
         elif isinstance(content, list):
             for part in content:
-                if isinstance(part, dict) and part.get("type") == "text":
+                if isinstance(part, dict) and part.get("type") in ("text", "input_text"):
                     parts.append(part.get("text", ""))
     prompt = body.get("prompt", "")
     if isinstance(prompt, str) and prompt:

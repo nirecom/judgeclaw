@@ -247,6 +247,25 @@ class TestExtractText:
         body = {"prompt": "complete this sentence"}
         assert "complete this sentence" in extract_text(body)
 
+    def test_responses_api_string_input(self):
+        body = {"input": "what is the weather?"}
+        assert "what is the weather?" in extract_text(body)
+
+    def test_responses_api_message_array_input(self):
+        body = {"input": [{"role": "user", "content": "hello from responses api"}]}
+        assert "hello from responses api" in extract_text(body)
+
+    def test_responses_api_multipart_input(self):
+        body = {
+            "input": [
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "describe"}],
+                }
+            ]
+        }
+        assert "describe" in extract_text(body)
+
     def test_empty_body(self):
         assert extract_text({}) == ""
 
@@ -415,6 +434,66 @@ class TestAppProxy:
             bridge_app.state.client = AsyncMock(request=mock_request)
             resp = await test_client.get("/v1/models")
         assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_responses_api_clean_passes(
+        self, mock_litellm_response, mock_judge_safe
+    ):
+        """POST /v1/responses must be inspected like /v1/chat/completions."""
+        with patch("app.check_with_judge", return_value=mock_judge_safe), patch(
+            "app.pii_scan", return_value=None
+        ):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=bridge_app),
+                base_url="http://test",
+            ) as test_client:
+                mock_request = AsyncMock(return_value=mock_litellm_response)
+                bridge_app.state.client = AsyncMock(request=mock_request)
+                resp = await test_client.post(
+                    "/v1/responses",
+                    json={"model": "agent-reasoner", "input": "what is 2+2?"},
+                )
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_responses_api_pii_blocked(self):
+        """PII in /v1/responses input must be blocked."""
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=bridge_app),
+            base_url="http://test",
+        ) as test_client:
+            bridge_app.state.client = AsyncMock()
+            resp = await test_client.post(
+                "/v1/responses",
+                json={
+                    "model": "agent-reasoner",
+                    "input": "send to user@example.com",
+                },
+            )
+        assert resp.status_code == 403
+        assert "PII" in resp.json()["error"]
+
+    @pytest.mark.asyncio
+    async def test_responses_api_judge_blocked(self, mock_judge_unsafe):
+        """Judge-flagged /v1/responses must be blocked."""
+        with patch("app.pii_scan", return_value=None), patch(
+            "app.check_with_judge", return_value=mock_judge_unsafe
+        ):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=bridge_app),
+                base_url="http://test",
+            ) as test_client:
+                bridge_app.state.client = AsyncMock()
+                resp = await test_client.post(
+                    "/v1/responses",
+                    json={
+                        "model": "agent-reasoner",
+                        "input": [
+                            {"role": "user", "content": "secret project details"}
+                        ],
+                    },
+                )
+        assert resp.status_code == 403
 
     @pytest.mark.asyncio
     async def test_non_inspected_path_forwarded(self, mock_litellm_response):

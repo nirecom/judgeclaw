@@ -26,6 +26,11 @@ async def check_with_judge(text: str, litellm_url: str) -> dict:
 
     Fail-closed: returns {"safe": False} on any error.
     """
+    # Truncate to fit Judge model context (keep tail — latest user input matters most)
+    max_chars = 3000
+    if len(text) > max_chars:
+        text = text[-max_chars:]
+
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(JUDGE_TIMEOUT)
