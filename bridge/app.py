@@ -130,9 +130,10 @@ async def proxy(request: Request, path: str):
 
             # 2. Judge LLM check (latest input only — avoid history contamination)
             judge_result = await check_with_judge(latest or text, LITELLM_URL)
+            judge_ep = judge_result.get("endpoint", "")
             if not judge_result["safe"]:
                 log_decision(
-                    "BLOCK", f"Judge: {judge_result['reason']}", f"/{path}"
+                    "BLOCK", f"Judge({judge_ep}): {judge_result['reason']}", f"/{path}"
                 )
                 return Response(
                     status_code=403,
@@ -142,7 +143,7 @@ async def proxy(request: Request, path: str):
                     media_type="application/json",
                 )
 
-        log_decision("PASS", "clean", f"/{path}")
+        log_decision("PASS", f"clean({judge_ep})", f"/{path}")
 
     # Forward request
     forward_headers = {

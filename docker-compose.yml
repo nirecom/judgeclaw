@@ -45,6 +45,8 @@ services:
     environment:
       - LITELLM_URL=http://openclaw-litellm:4000
       - JUDGE_MODEL_NAME=judge
+      - PORTABLE_SERVER_URL=${PORTABLE_SERVER_URL:-}
+      - JUDGE_PORTABLE_MODEL=${JUDGE_PORTABLE_MODEL:-Qwen2.5-7B-Instruct-Q4_K_M}
       - LOG_DIR=/var/log/openclaw
     volumes:
       - ./logs:/var/log/openclaw

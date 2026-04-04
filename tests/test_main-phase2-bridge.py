@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import time
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -147,88 +148,131 @@ def _mock_judge_response(content: str, status_code: int = 200) -> httpx.Response
 class TestJudge:
     """Judge LLM client tests."""
 
+    @pytest.fixture(autouse=True)
+    def reset_portable(self):
+        """Disable portable for basic tests, reset dead state."""
+        import judge
+        orig = judge.PORTABLE_URL
+        judge.PORTABLE_URL = ""
+        judge._portable_dead_until = 0.0
+        yield
+        judge.PORTABLE_URL = orig
+        judge._portable_dead_until = 0.0
+
     @pytest.mark.asyncio
     async def test_safe_response(self):
-        mock_post = AsyncMock(
-            return_value=_mock_judge_response('{"safe": true}')
-        )
-        with patch("judge.httpx.AsyncClient") as MockClient:
-            MockClient.return_value.__aenter__ = AsyncMock(
-                return_value=AsyncMock(post=mock_post)
-            )
-            MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        mock = AsyncMock(return_value=_mock_judge_response('{"safe": true}'))
+        with patch("judge._request_judge", mock):
             result = await check_with_judge("hello world", "http://mock:4000")
         assert result["safe"] is True
 
     @pytest.mark.asyncio
     async def test_unsafe_response(self):
-        mock_post = AsyncMock(
+        mock = AsyncMock(
             return_value=_mock_judge_response(
                 '{"safe": false, "reason": "contains PII"}'
             )
         )
-        with patch("judge.httpx.AsyncClient") as MockClient:
-            MockClient.return_value.__aenter__ = AsyncMock(
-                return_value=AsyncMock(post=mock_post)
-            )
-            MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        with patch("judge._request_judge", mock):
             result = await check_with_judge("user@example.com", "http://mock:4000")
         assert result["safe"] is False
         assert "PII" in result["reason"]
 
     @pytest.mark.asyncio
     async def test_http_error_returns_unsafe(self):
-        mock_post = AsyncMock(
-            return_value=_mock_judge_response("", status_code=500)
-        )
-        with patch("judge.httpx.AsyncClient") as MockClient:
-            MockClient.return_value.__aenter__ = AsyncMock(
-                return_value=AsyncMock(post=mock_post)
-            )
-            MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        mock = AsyncMock(return_value=_mock_judge_response("", status_code=500))
+        with patch("judge._request_judge", mock):
             result = await check_with_judge("test", "http://mock:4000")
         assert result["safe"] is False
 
     @pytest.mark.asyncio
     async def test_connection_error_returns_unsafe(self):
-        mock_post = AsyncMock(side_effect=httpx.ConnectError("refused"))
-        with patch("judge.httpx.AsyncClient") as MockClient:
-            MockClient.return_value.__aenter__ = AsyncMock(
-                return_value=AsyncMock(post=mock_post)
-            )
-            MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        mock = AsyncMock(side_effect=httpx.ConnectError("refused"))
+        with patch("judge._request_judge", mock):
             result = await check_with_judge("test", "http://mock:4000")
         assert result["safe"] is False
         assert "ConnectError" in result["reason"]
 
     @pytest.mark.asyncio
     async def test_unparseable_json_returns_unsafe(self):
-        mock_post = AsyncMock(
+        mock = AsyncMock(
             return_value=_mock_judge_response("I think this is fine")
         )
-        with patch("judge.httpx.AsyncClient") as MockClient:
-            MockClient.return_value.__aenter__ = AsyncMock(
-                return_value=AsyncMock(post=mock_post)
-            )
-            MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        with patch("judge._request_judge", mock):
             result = await check_with_judge("test", "http://mock:4000")
         assert result["safe"] is False
         assert "unparseable" in result["reason"]
 
     @pytest.mark.asyncio
     async def test_fallback_string_match_safe(self):
-        mock_post = AsyncMock(
+        mock = AsyncMock(
             return_value=_mock_judge_response(
                 'Based on analysis: {"safe": true} - no issues'
             )
         )
-        with patch("judge.httpx.AsyncClient") as MockClient:
-            MockClient.return_value.__aenter__ = AsyncMock(
-                return_value=AsyncMock(post=mock_post)
-            )
-            MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+        with patch("judge._request_judge", mock):
             result = await check_with_judge("test", "http://mock:4000")
         assert result["safe"] is True
+
+
+class TestJudgeDirectFallback:
+    """Judge direct fallback (portable → LiteLLM) tests."""
+
+    @pytest.fixture(autouse=True)
+    def setup_portable(self):
+        import judge
+        judge.PORTABLE_URL = "http://mac:8080"
+        judge._portable_dead_until = 0.0
+        yield
+        judge.PORTABLE_URL = ""
+        judge._portable_dead_until = 0.0
+
+    @pytest.mark.asyncio
+    async def test_portable_primary_used(self):
+        """When portable is alive, it is used and LiteLLM is not called."""
+        mock = AsyncMock(return_value=_mock_judge_response('{"safe": true}'))
+        with patch("judge._request_judge", mock):
+            result = await check_with_judge("hello", "http://litellm:4000")
+        assert result["safe"] is True
+        mock.assert_called_once()
+        assert mock.call_args[0][0] == "http://mac:8080"
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_litellm_on_portable_error(self):
+        """When portable fails, falls back to LiteLLM."""
+        mock = AsyncMock(side_effect=[
+            httpx.ConnectError("refused"),
+            _mock_judge_response('{"safe": true}'),
+        ])
+        with patch("judge._request_judge", mock):
+            result = await check_with_judge("hello", "http://litellm:4000")
+        assert result["safe"] is True
+        assert mock.call_count == 2
+        assert mock.call_args_list[1][0][0] == "http://litellm:4000"
+
+    @pytest.mark.asyncio
+    async def test_portable_dead_skipped(self):
+        """After portable failure, it is skipped for _DEAD_TTL seconds."""
+        import judge
+        judge._portable_dead_until = time.monotonic() + 999
+        mock = AsyncMock(return_value=_mock_judge_response('{"safe": true}'))
+        with patch("judge._request_judge", mock):
+            result = await check_with_judge("hello", "http://litellm:4000")
+        assert result["safe"] is True
+        mock.assert_called_once()
+        assert mock.call_args[0][0] == "http://litellm:4000"
+
+    @pytest.mark.asyncio
+    async def test_no_portable_url_skips_portable(self):
+        """When PORTABLE_URL is empty, goes straight to LiteLLM."""
+        import judge
+        judge.PORTABLE_URL = ""
+        mock = AsyncMock(return_value=_mock_judge_response('{"safe": true}'))
+        with patch("judge._request_judge", mock):
+            result = await check_with_judge("hello", "http://litellm:4000")
+        assert result["safe"] is True
+        mock.assert_called_once()
+        assert mock.call_args[0][0] == "http://litellm:4000"
 
 
 # ---------------------------------------------------------------------------
