@@ -53,7 +53,10 @@ async def check_with_judge(text: str, litellm_url: str) -> dict:
             return {"safe": False, "reason": f"Judge HTTP {response.status_code}"}
 
         data = response.json()
-        content = data["choices"][0]["message"]["content"]
+        msg = data["choices"][0]["message"]
+        content = msg.get("content") or ""
+        if not content.strip():
+            content = msg.get("reasoning_content") or ""
         content = re.sub(r"<think>[\s\S]*?</think>|<think>[\s\S]*", "", content).strip()
 
         # Try JSON parse
