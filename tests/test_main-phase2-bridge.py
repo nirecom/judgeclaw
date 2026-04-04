@@ -85,13 +85,18 @@ class TestPIIPatterns:
         assert result is not None
         assert result[1] == "credit_card"
 
-    def test_jp_address(self):
-        result = scan("住所は東京都千代田区です")
+    def test_jp_address_with_banchi(self):
+        result = scan("東京都千代田区永田町1丁目7番1号")
         assert result is not None
         assert result[1] == "jp_address"
 
-    def test_jp_address_prefecture(self):
-        result = scan("神奈川県横浜市に住んでいます")
+    def test_jp_address_with_chome(self):
+        result = scan("神奈川県横浜市中区本町6丁目")
+        assert result is not None
+        assert result[1] == "jp_address"
+
+    def test_jp_address_with_banchi_only(self):
+        result = scan("大阪府大阪市北区梅田3番地")
         assert result is not None
         assert result[1] == "jp_address"
 
@@ -112,6 +117,16 @@ class TestPIIPatterns:
 
     def test_four_digit_year_not_pii(self):
         assert scan("in the year 2025") is None
+
+    def test_jp_pref_city_not_pii(self):
+        """Prefecture + city without street detail is not PII."""
+        assert scan("東京都千代田区です") is None
+
+    def test_jp_pref_city_population(self):
+        assert scan("東京都葛飾区の人口は") is None
+
+    def test_jp_pref_weather(self):
+        assert scan("神奈川県横浜市の天気") is None
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +234,7 @@ class TestJudge:
 # ---------------------------------------------------------------------------
 # App integration (FastAPI proxy)
 # ---------------------------------------------------------------------------
-from app import app as bridge_app, extract_text
+from app import app as bridge_app, extract_text, extract_latest_input
 
 
 class TestExtractText:
@@ -268,6 +283,49 @@ class TestExtractText:
 
     def test_empty_body(self):
         assert extract_text({}) == ""
+
+
+class TestExtractLatestInput:
+    """extract_latest_input returns only the last user message."""
+
+    def test_chat_completions_latest(self):
+        body = {
+            "messages": [
+                {"role": "user", "content": "first"},
+                {"role": "assistant", "content": "reply"},
+                {"role": "user", "content": "second"},
+            ]
+        }
+        assert extract_latest_input(body) == "second"
+
+    def test_responses_api_latest(self):
+        body = {
+            "input": [
+                {"role": "user", "content": "old message"},
+                {"role": "assistant", "content": "old reply"},
+                {"role": "user", "content": "latest question"},
+            ]
+        }
+        assert extract_latest_input(body) == "latest question"
+
+    def test_responses_api_string(self):
+        body = {"input": "hello"}
+        assert extract_latest_input(body) == "hello"
+
+    def test_empty_body(self):
+        assert extract_latest_input({}) == ""
+
+    def test_pii_in_history_not_in_latest(self):
+        """PII in history should not contaminate latest input scan."""
+        body = {
+            "input": [
+                {"role": "user", "content": "東京都千代田区永田町1丁目7番1号"},
+                {"role": "assistant", "content": "それは国会議事堂です"},
+                {"role": "user", "content": "今日の天気は?"},
+            ]
+        }
+        latest = extract_latest_input(body)
+        assert scan(latest) is None
 
 
 @pytest.fixture

@@ -55,6 +55,28 @@ def extract_text(body: dict) -> str:
     return "\n".join(parts)
 
 
+def extract_latest_input(body: dict) -> str:
+    """Extract only the latest user message for PII scanning."""
+    inp = body.get("input")
+    if isinstance(inp, str):
+        return inp
+    msgs = body.get("messages") or body.get("input") or []
+    if not isinstance(msgs, list):
+        return ""
+    for msg in reversed(msgs):
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                parts = []
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") in ("text", "input_text"):
+                        parts.append(part.get("text", ""))
+                return "\n".join(parts)
+    return ""
+
+
 def log_decision(action: str, reason: str, path: str):
     """Log inspection decision to file and logger."""
     entry = {
@@ -91,10 +113,11 @@ async def proxy(request: Request, path: str):
             body = {}
 
         text = extract_text(body)
+        latest = extract_latest_input(body)
 
         if text:
-            # 1. PII regex scan (fast)
-            pii_result = pii_scan(text)
+            # 1. PII regex scan on latest input only (avoid history contamination)
+            pii_result = pii_scan(latest) if latest else None
             if pii_result:
                 log_decision("BLOCK", f"PII detected: {pii_result[1]}", f"/{path}")
                 return Response(
@@ -105,8 +128,8 @@ async def proxy(request: Request, path: str):
                     media_type="application/json",
                 )
 
-            # 2. Judge LLM check
-            judge_result = await check_with_judge(text, LITELLM_URL)
+            # 2. Judge LLM check (latest input only — avoid history contamination)
+            judge_result = await check_with_judge(latest or text, LITELLM_URL)
             if not judge_result["safe"]:
                 log_decision(
                     "BLOCK", f"Judge: {judge_result['reason']}", f"/{path}"

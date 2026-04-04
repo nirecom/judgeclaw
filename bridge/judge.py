@@ -1,6 +1,7 @@
 """Judge LLM client for semantic PII/safety inspection."""
 import json
 import os
+import re
 
 import httpx
 
@@ -44,7 +45,7 @@ async def check_with_judge(text: str, litellm_url: str) -> dict:
                         {"role": "user", "content": text},
                     ],
                     "temperature": 0,
-                    "max_tokens": 100,
+                    "max_tokens": 1000,
                 },
             )
 
@@ -53,6 +54,7 @@ async def check_with_judge(text: str, litellm_url: str) -> dict:
 
         data = response.json()
         content = data["choices"][0]["message"]["content"]
+        content = re.sub(r"<think>[\s\S]*?</think>|<think>[\s\S]*", "", content).strip()
 
         # Try JSON parse
         try:
