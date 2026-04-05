@@ -32,10 +32,24 @@
           "id": "BRAVE_API_KEY"
         }
       }
-    }
+    },
+    "profile": "minimal",
+    "alsoAllow": [
+      "web_search",
+      "web_fetch",
+      "exec"
+    ]
   },
   "meta": {
     "lastTouchedVersion": "2026.4.2",
-    "lastTouchedAt": "2026-04-04T15:45:31.558Z"
+    "lastTouchedAt": "2026-04-05T03:52:59.026Z"
+  },
+  "agents": {
+    "defaults": {
+      "contextTokens": 28000,
+      "compaction": {
+        "mode": "default"
+      }
+    }
   }
 }
