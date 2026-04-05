@@ -1,6 +1,9 @@
 networks:
   openclaw-internal:
     internal: true
+    ipam:
+      config:
+        - subnet: 172.24.0.0/16
   openclaw-external: {}
 
 services:
@@ -29,14 +32,19 @@ services:
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
       - OPENAI_BASE_URL=http://openclaw-bridge:8080/v1
       - OPENAI_API_KEY=not-needed
+      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
     volumes:
       - ./openclaw:/home/node/.openclaw
       - ./workspace:/home/node/.openclaw/workspace
     networks:
       - openclaw-internal
+      - openclaw-external
+    dns: 172.24.0.253
     depends_on:
       openclaw-bridge:
         condition: service_healthy
+      openclaw-dns:
+        condition: service_started
 
   openclaw-bridge:
     build: ./bridge
@@ -93,7 +101,19 @@ services:
       - ./squid/squid.conf:/etc/squid/squid.conf:ro
       - ./squid/whitelist.txt:/etc/squid/whitelist.txt:ro
     networks:
+      - openclaw-internal
       - openclaw-external
+
+  openclaw-dns:
+    build: ./dns
+    container_name: openclaw-dns
+    restart: unless-stopped
+    volumes:
+      - ./dns/whitelist.conf:/etc/dnsmasq.conf:ro
+    networks:
+      openclaw-internal:
+        ipv4_address: 172.24.0.253
+      openclaw-external: {}
 
   openclaw-sandbox:
     image: ghcr.io/openclaw/openclaw:latest

@@ -1,0 +1,3 @@
+api.search.brave.com
+ja.wikipedia.org
+en.wikipedia.org
