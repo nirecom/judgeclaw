@@ -38,7 +38,6 @@ services:
       - ./workspace:/home/node/.openclaw/workspace
     networks:
       - openclaw-internal
-      - openclaw-external
     dns: 172.24.0.253
     depends_on:
       openclaw-bridge:
@@ -93,16 +92,16 @@ services:
       timeout: 10s
       retries: 3
 
-  openclaw-squid:
-    image: ubuntu/squid:latest
-    container_name: openclaw-squid
+  openclaw-sniproxy:
+    image: nginx:alpine
+    container_name: openclaw-sniproxy
     restart: unless-stopped
     volumes:
-      - ./squid/squid.conf:/etc/squid/squid.conf:ro
-      - ./squid/whitelist.txt:/etc/squid/whitelist.txt:ro
+      - ./sniproxy/nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
-      - openclaw-internal
-      - openclaw-external
+      openclaw-internal:
+        ipv4_address: 172.24.0.251
+      openclaw-external: {}
 
   openclaw-dns:
     build: ./dns
@@ -114,6 +113,18 @@ services:
       openclaw-internal:
         ipv4_address: 172.24.0.253
       openclaw-external: {}
+
+  openclaw-egress:
+    build: ./egress
+    container_name: openclaw-egress
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    network_mode: "service:openclaw-agent"
+    depends_on:
+      - openclaw-agent
+      - openclaw-sniproxy
 
   openclaw-sandbox:
     image: ghcr.io/openclaw/openclaw:latest
