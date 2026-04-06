@@ -49,6 +49,9 @@
       "contextTokens": 28000,
       "compaction": {
         "mode": "default"
+      },
+      "heartbeat": {
+        "enabled": false
       }
     }
   }
