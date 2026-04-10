@@ -22,10 +22,11 @@ services:
       - openclaw-agent
 
   openclaw-agent:
-    image: ghcr.io/openclaw/openclaw:latest
+    build: ./openclaw-agent
     container_name: openclaw-agent
     user: "1000:1000"
     restart: unless-stopped
+    command: ["node", "openclaw.mjs", "gateway", "--allow-unconfigured"]
     environment:
       - HOME=/home/node
       - TERM=xterm-256color
@@ -34,6 +35,7 @@ services:
       - OPENAI_API_KEY=not-needed
       - BRAVE_API_KEY=${BRAVE_API_KEY:-}
     volumes:
+      - ./config/whitelist.txt:/etc/whitelist.txt:ro
       - ./openclaw:/home/node/.openclaw
       - ./workspace:/home/node/.openclaw/workspace
     networks:
@@ -127,8 +129,9 @@ services:
       - openclaw-sniproxy
 
   openclaw-sandbox:
-    image: ghcr.io/openclaw/openclaw:latest
+    image: ghcr.io/openclaw/openclaw@sha256:0b2170d5ec3a487a6313ed0556d377c5c5c80a0f806043daa2e685a4bedd45e3
     container_name: openclaw-sandbox
+    # TODO: When sandbox becomes active, switch to build: ./openclaw-agent
     user: "1000:1000"
     restart: unless-stopped
     read_only: true

@@ -1,0 +1,3 @@
+# Narrow allowlist for D-1b negative test (Step 1.6)
+# Only wttr.in is allowed — api.search.brave.com should be SSRF-blocked
+wttr.in

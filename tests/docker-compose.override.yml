@@ -1,0 +1,6 @@
+services:
+  openclaw-agent:
+    environment:
+      - OPENCLAW_SSRF_ALLOWLIST_FILE=/tmp/test-allowlist.txt
+    volumes:
+      - ./tests/fixtures/ssrf-allowlist-narrow.txt:/tmp/test-allowlist.txt:ro
