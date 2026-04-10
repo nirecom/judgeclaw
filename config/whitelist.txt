@@ -1,0 +1,18 @@
+# judgeclaw shared domain whitelist (SSOT)
+#
+# This file is the single source of truth for outbound domain access from the
+# OpenClaw agent. It is consumed at runtime by:
+#   - openclaw-dns (dnsmasq): forwards only listed domains, others -> NXDOMAIN
+#   - openclaw-sniproxy (nginx stream): allows HTTPS only to listed SNI
+#   - openclaw-agent (web_fetch SSRF patch, Step 1.6): hostnameAllowlist
+#
+# Format: one domain per line. Lines starting with '#' and blank lines are
+# ignored. Trailing whitespace is stripped. CRLF line endings are handled.
+#
+# To add a domain: append a line and `docker compose restart openclaw-dns
+# openclaw-sniproxy openclaw-agent`.
+
+api.search.brave.com
+ja.wikipedia.org
+en.wikipedia.org
+wttr.in

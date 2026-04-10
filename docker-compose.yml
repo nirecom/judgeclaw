@@ -93,11 +93,11 @@ services:
       retries: 3
 
   openclaw-sniproxy:
-    image: nginx:alpine
+    build: ./sniproxy
     container_name: openclaw-sniproxy
     restart: unless-stopped
     volumes:
-      - ./sniproxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/whitelist.txt:/etc/whitelist.txt:ro
     networks:
       openclaw-internal:
         ipv4_address: 172.24.0.251
@@ -108,7 +108,7 @@ services:
     container_name: openclaw-dns
     restart: unless-stopped
     volumes:
-      - ./dns/whitelist.conf:/etc/dnsmasq.conf:ro
+      - ./config/whitelist.txt:/etc/whitelist.txt:ro
     networks:
       openclaw-internal:
         ipv4_address: 172.24.0.253
