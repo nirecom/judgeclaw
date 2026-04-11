@@ -2,18 +2,60 @@
 
 Docker Compose deployment of [OpenClaw](https://github.com/openclaw/openclaw) with a custom security layer that compensates for Docker's weaker isolation compared to VM-based sandboxes.
 
-## Security Architecture
+## Design Principles
 
-- **Judge Filter** (`openclaw-bridge`): FastAPI reverse proxy that intercepts all Agent LLM calls. Blocks requests containing PII (regex patterns + Judge LLM as a second opinion). Fail-closed.
-- **Network isolation**: Agent runs on an internal-only network — no direct external access.
-- **SNI proxy + DNS whitelist** (`openclaw-sniproxy`, `openclaw-dns`): All outbound HTTPS is filtered by hostname. Default: weather/search only. Add domains to `config/whitelist.txt`.
-- **Judge LLM**: Separate model from the Agent model (bias isolation). Runs via llama-swap.
+- **Agent cannot reach external networks** — internal network only
+- **All outbound traffic goes through Bridge/Judge** — Agent cannot reach LiteLLM or the internet directly
+- **Bridge/Judge inspects all traffic** with PII regex + Judge LLM (fail-closed)
+- **Judge LLM uses a different model** from the Agent LLM — bias isolation
+- **Restart-resilient** — `restart: unless-stopped` + Docker Desktop auto-start
+
+## Architecture
+
+```mermaid
+graph TD
+    browser["Browser / Cloudflare"] -->|":18789 WS"| ingress
+
+    subgraph both["int + ext"]
+        ingress["openclaw-ingress (nginx)<br/>:18789"]
+        bridge["openclaw-bridge (Judge Filter)<br/>:8080"]
+        sniproxy["openclaw-sniproxy (nginx stream)<br/>:443 SNI whitelist"]
+        dns["openclaw-dns (dnsmasq)<br/>DNS whitelist"]
+    end
+
+    subgraph internal["openclaw-internal"]
+        subgraph agent_ns["agent network namespace"]
+            agent["openclaw-agent"]
+            egress["openclaw-egress<br/>(iptables DNAT + default route)"]
+        end
+    end
+
+    subgraph external["openclaw-external"]
+        litellm["openclaw-litellm<br/>:4000 / :4100 debug"]
+    end
+
+    sandbox["openclaw-sandbox<br/>network: none (stub)"]
+
+    ingress -->|"WS proxy"| agent
+    agent -->|"outbound LLM"| bridge
+    agent -.->|"DNS"| dns
+    agent -->|"outbound"| egress
+    egress -->|"DNAT :443"| sniproxy
+    bridge -->|"LLM API"| litellm
+    sniproxy -->|"whitelist only"| internet["Internet"]
+    litellm --> llamaswap["llama-swap :18080"]
+
+    style internal fill:#1a3a4a,stroke:#2196F3,color:#fff
+    style external fill:#3a2a1a,stroke:#FF9800,color:#fff
+    style both fill:#2a1a3a,stroke:#9C27B0,color:#fff
+    style agent_ns fill:#0d2530,stroke:#1976D2,color:#fff,stroke-dasharray: 5 5
+    style sandbox fill:#333,stroke:#666,color:#fff
+```
 
 ## Prerequisites
 
-- Docker Desktop
-- [llama-swap](https://github.com/nirecom/llama-swap) running on `127.0.0.1:18080` (provides Agent and Judge models)
-- [openclaw-private](https://github.com/nirecom/openclaw-private) checked out at a sibling path (provides the `workspace/` bind mount)
+- Docker (with Docker Compose)
+- An OpenAI-compatible LLM server (configurable via `LLAMA_SERVER_URL` in `.env`, default: `http://host.docker.internal:18080/v1`)
 
 ## Setup
 
@@ -37,7 +79,7 @@ docker exec openclaw-agent openclaw devices approve <request-id>
 | `OPENCLAW_GATEWAY_TOKEN` | Gateway auth token (`openssl rand -hex 32`) |
 | `OPENCLAW_PORT` | Ingress port (default: 18789) |
 | `LITELLM_MASTER_KEY` | LiteLLM internal key |
-| `LLAMA_SERVER_URL` | llama-swap URL for Agent model |
+| `LLAMA_SERVER_URL` | LLM server URL for Agent model |
 | `REASONER_LOCAL_MODEL` | Agent model ID |
 | `JUDGE_LOCAL_MODEL` | Judge model ID (via LiteLLM) |
 | `PORTABLE_SERVER_URL` | Judge direct fallback URL (skips LiteLLM) |
@@ -46,6 +88,3 @@ docker exec openclaw-agent openclaw devices approve <request-id>
 
 Add domains to `config/whitelist.txt` to expand the SNI/DNS whitelist.
 
-## Docs
-
-Design decisions and operations: [ai-specs/projects/engineering/judgeclaw](https://github.com/nirecom/ai-specs/tree/main/projects/engineering/judgeclaw)
