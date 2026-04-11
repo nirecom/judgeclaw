@@ -19,3 +19,4 @@ wttr.in
 arxiv.org
 export.arxiv.org
 alphaxiv.org
+www.alphaxiv.org
