@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -18,6 +19,18 @@ LITELLM_URL = os.environ.get("LITELLM_URL", "http://openclaw-litellm:4000")
 LOG_DIR = os.environ.get("LOG_DIR", "/var/log/openclaw")
 
 INSPECTED_PATHS = {"/v1/chat/completions", "/v1/completions", "/v1/responses"}
+
+SHORT_MSG_CHARS = int(os.environ.get("JUDGE_SHORT_MSG_CHARS", "20"))
+HEURISTIC_SKIP = os.environ.get("JUDGE_HEURISTIC_SKIP", "true").lower() == "true"
+# Max chars from end of latest to scan for risk signals.
+# Responses API string input contains the full agent prompt; user message is at the tail.
+_RISK_TAIL_CHARS = int(os.environ.get("JUDGE_RISK_TAIL_CHARS", "200"))
+
+_RISK_SIGNAL = re.compile(r"\d|@|://|=|[a-zA-Z0-9]{64,}")
+# OpenClaw prepends "[Day YYYY-MM-DD HH:MM TZ] " to user messages in string input.
+_OPENCLAW_TIMESTAMP = re.compile(
+    r"\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+\w+\]\s*"
+)
 
 
 @asynccontextmanager
@@ -77,6 +90,27 @@ def extract_latest_input(body: dict) -> str:
     return ""
 
 
+def _should_skip_judge(latest: str) -> bool:
+    """Return True if text is obviously safe and judge call can be skipped.
+
+    For long strings (Responses API string input contains the full agent
+    prompt), only the tail is scanned for risk signals because the user
+    message is always appended at the end.
+    """
+    if not latest or not latest.strip():
+        return True
+    tail = latest[-_RISK_TAIL_CHARS:] if len(latest) > _RISK_TAIL_CHARS else latest
+    # Strip OpenClaw timestamp metadata before risk signal scan
+    tail = _OPENCLAW_TIMESTAMP.sub("", tail)
+    if _RISK_SIGNAL.search(tail):
+        return False
+    if len(latest) <= SHORT_MSG_CHARS:
+        return True
+    if HEURISTIC_SKIP:
+        return True
+    return False
+
+
 def log_decision(action: str, reason: str, path: str):
     """Log inspection decision to file and logger."""
     entry = {
@@ -128,22 +162,31 @@ async def proxy(request: Request, path: str):
                     media_type="application/json",
                 )
 
-            # 2. Judge LLM check (latest input only — avoid history contamination)
-            judge_result = await check_with_judge(latest or text, LITELLM_URL)
-            judge_ep = judge_result.get("endpoint", "")
-            if not judge_result["safe"]:
-                log_decision(
-                    "BLOCK", f"Judge({judge_ep}): {judge_result['reason']}", f"/{path}"
+            # 2. Judge LLM check (skip for obviously safe messages)
+            if _should_skip_judge(latest):
+                skip_reason = (
+                    "no-user-input" if not latest or not latest.strip()
+                    else "short-msg" if len(latest) <= SHORT_MSG_CHARS
+                    else "no-risk-signal"
                 )
-                return Response(
-                    status_code=403,
-                    content=json.dumps(
-                        {"error": f"Blocked: {judge_result['reason']}"}
-                    ),
-                    media_type="application/json",
-                )
-
-        log_decision("PASS", f"clean({judge_ep})", f"/{path}")
+                log_decision("PASS", f"skip({skip_reason})", f"/{path}")
+            else:
+                judge_result = await check_with_judge(latest, LITELLM_URL)
+                judge_ep = judge_result.get("endpoint", "")
+                if not judge_result["safe"]:
+                    log_decision(
+                        "BLOCK",
+                        f"Judge({judge_ep}): {judge_result['reason']}",
+                        f"/{path}",
+                    )
+                    return Response(
+                        status_code=403,
+                        content=json.dumps(
+                            {"error": f"Blocked: {judge_result['reason']}"}
+                        ),
+                        media_type="application/json",
+                    )
+                log_decision("PASS", f"clean({judge_ep})", f"/{path}")
 
     # Forward request
     forward_headers = {

@@ -496,7 +496,7 @@ class TestAppProxy:
                         "messages": [
                             {
                                 "role": "user",
-                                "content": "tell me about the secret project",
+                                "content": "tell me about the secret project=alpha",
                             }
                         ],
                     },
@@ -519,7 +519,7 @@ class TestAppProxy:
                     json={
                         "model": "agent-reasoner",
                         "messages": [
-                            {"role": "user", "content": "hello"}
+                            {"role": "user", "content": "hello key=secret123"}
                         ],
                     },
                 )
@@ -591,7 +591,7 @@ class TestAppProxy:
                     json={
                         "model": "agent-reasoner",
                         "input": [
-                            {"role": "user", "content": "secret project details"}
+                            {"role": "user", "content": "secret project details=42"}
                         ],
                     },
                 )
