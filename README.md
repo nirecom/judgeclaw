@@ -86,5 +86,5 @@ docker exec openclaw-agent openclaw devices approve <request-id>
 | `JUDGE_PORTABLE_MODEL` | Judge model ID for direct fallback |
 | `BRAVE_API_KEY` | Brave Search API key (web search tool) |
 
-Add domains to `config/whitelist.txt` to expand the SNI/DNS whitelist.
+Add domains to `config/whitelist.txt` to expand the SNI/DNS whitelist. Changes are detected automatically within ~5 seconds (no manual restart needed).
 

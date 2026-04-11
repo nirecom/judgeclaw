@@ -13,6 +13,12 @@ for arg in "$@"; do
     esac
 done
 
+if [ -d "$WHITELIST_FILE" ]; then
+    echo "[openclaw-sniproxy] ERROR: whitelist is a directory, not a file." >&2
+    echo "[openclaw-sniproxy] This is caused by a Docker Desktop bind-mount bug (internal Compose CLI path translation failure)." >&2
+    echo "[openclaw-sniproxy] Fix: docker compose -f c:/LLM/judgeclaw/docker-compose.yml up -d --force-recreate openclaw-sniproxy" >&2
+    exit 1
+fi
 if [ ! -r "$WHITELIST_FILE" ]; then
     echo "[openclaw-sniproxy] ERROR: whitelist file not readable: $WHITELIST_FILE" >&2
     exit 1

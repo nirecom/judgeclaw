@@ -6,7 +6,8 @@ FROM ghcr.io/openclaw/openclaw@sha256:0b2170d5ec3a487a6313ed0556d377c5c5c80a0f80
 USER root
 COPY entrypoint.sh /opt/judgeclaw/entrypoint.sh
 COPY apply-ssrf-patch.sh /opt/judgeclaw/apply-ssrf-patch.sh
-RUN chmod +x /opt/judgeclaw/entrypoint.sh /opt/judgeclaw/apply-ssrf-patch.sh
+COPY generate-web-access-section.sh /opt/judgeclaw/generate-web-access-section.sh
+RUN chmod +x /opt/judgeclaw/entrypoint.sh /opt/judgeclaw/apply-ssrf-patch.sh /opt/judgeclaw/generate-web-access-section.sh
 USER node
 
 ENTRYPOINT ["/bin/sh", "/opt/judgeclaw/entrypoint.sh"]

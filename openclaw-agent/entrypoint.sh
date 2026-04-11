@@ -11,5 +11,6 @@ if [ ! -r "$ALLOWLIST_FILE" ]; then
 fi
 
 /opt/judgeclaw/apply-ssrf-patch.sh "$ALLOWLIST_FILE" /app/dist
+/opt/judgeclaw/generate-web-access-section.sh "$ALLOWLIST_FILE"
 
 exec docker-entrypoint.sh "$@"

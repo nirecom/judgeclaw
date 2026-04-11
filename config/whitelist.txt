@@ -16,3 +16,6 @@ api.search.brave.com
 ja.wikipedia.org
 en.wikipedia.org
 wttr.in
+arxiv.org
+export.arxiv.org
+alphaxiv.org

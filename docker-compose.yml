@@ -128,6 +128,45 @@ services:
       - openclaw-agent
       - openclaw-sniproxy
 
+  openclaw-watcher:
+    image: docker:cli
+    container_name: openclaw-watcher
+    restart: unless-stopped
+    network_mode: none
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./config/whitelist.txt:/etc/whitelist.txt:ro
+    # Two responsibilities:
+    # 1. Recreate openclaw-egress whenever openclaw-agent is recreated.
+    #    docker restart fails because it caches the old agent container ID in network_mode.
+    #    Use plain docker stop/rm/run to avoid compose project name conflicts.
+    #    sleep 3: gives egress time to start on initial boot before we touch it.
+    # 2. Restart agent/sniproxy/dns when whitelist.txt changes (poll every 5s).
+    #    egress is then auto-recovered by responsibility 1 above.
+    command:
+      - sh
+      - -c
+      - |
+        PREV=$$(sha256sum /etc/whitelist.txt | cut -d' ' -f1)
+        echo "[watcher] watching whitelist.txt (hash: $$PREV)"
+        while true; do
+          sleep 5
+          CURR=$$(sha256sum /etc/whitelist.txt | cut -d' ' -f1)
+          if [ "$$CURR" != "$$PREV" ]; then
+            echo "[watcher] whitelist.txt changed, restarting services"
+            docker restart openclaw-agent openclaw-sniproxy openclaw-dns
+            PREV=$$CURR
+          fi
+        done &
+        docker events --filter event=start --filter container=openclaw-agent --format '{{.Actor.ID}}' \
+        | while read id; do
+            sleep 3
+            echo '[watcher] openclaw-agent started, recreating openclaw-egress'
+            docker stop openclaw-egress 2>/dev/null || true
+            docker rm openclaw-egress 2>/dev/null || true
+            docker run -d --name openclaw-egress --cap-add NET_ADMIN --cap-add NET_RAW --network container:openclaw-agent --restart unless-stopped judgeclaw-openclaw-egress
+          done
+
   openclaw-sandbox:
     image: ghcr.io/openclaw/openclaw@sha256:0b2170d5ec3a487a6313ed0556d377c5c5c80a0f806043daa2e685a4bedd45e3
     container_name: openclaw-sandbox
