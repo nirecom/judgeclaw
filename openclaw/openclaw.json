@@ -4,6 +4,11 @@
     "mode": "local",
     "auth": {
       "mode": "token"
+    },
+    "controlUi": {
+      "allowedOrigins": [
+        "https://paw.nire.to"
+      ]
     }
   },
   "models": {
