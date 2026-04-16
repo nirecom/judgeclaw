@@ -1,0 +1,1 @@
+{"model": "agent", "input": [{"type": "function_call_output", "call_id": "call_a", "output": "Result from tool A"}, {"type": "function_call_output", "call_id": "call_b", "output": "Result from tool B"}]}

@@ -1,0 +1,1 @@
+{"model": "agent", "input": [{"type": "function_call_output", "call_id": "call_2", "output": "-----BEGIN CERTIFICATE-----\nMIIDXTCCAkWgAwIBAgIJALFREnBuMhIYMA0GCSqGSIb3DQEBCwUAMEUxCzAJBgNV\nBAYTAlVTMRMwEQYDVQQIDApTb21lU3RhdGUxITAfBgNVBAoMGEludGVybmV0IFdp\nZGdpdHMgUHR5IEx0ZDAeFw0yMzAxMDEwMDAwMDBaFw0yNDAxMDEwMDAwMDBaMEUx\n-----END CERTIFICATE-----"}]}

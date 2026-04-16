@@ -1,0 +1,1 @@
+{"model": "agent", "messages": [{"role": "user", "content": "What is the weather?"}, {"role": "assistant", "content": "Let me check.", "tool_calls": [{"id": "call_9", "type": "function", "function": {"name": "get_weather", "arguments": "{}"}}]}, {"role": "tool", "tool_call_id": "call_9", "content": "{\"weather\": \"cloudy\", \"temp_c\": 18}"}]}

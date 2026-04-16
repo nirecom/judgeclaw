@@ -1,8 +1,10 @@
 """OpenClaw Bridge - Judge Filter reverse proxy."""
+import asyncio
 import json
 import logging
 import os
 import re
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -12,6 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from pii_patterns import scan as pii_scan
 from judge import check_with_judge
+from inbound import check_inbound
 
 logger = logging.getLogger("bridge")
 
@@ -111,12 +114,23 @@ def _should_skip_judge(latest: str) -> bool:
     return False
 
 
-def log_decision(action: str, reason: str, path: str):
+def log_decision(
+    action: str,
+    reason: str,
+    path: str,
+    *,
+    direction: str = "outbound",
+    via: str = "",
+    correlation_id: str = "",
+):
     """Log inspection decision to file and logger."""
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "correlation_id": correlation_id,
+        "direction": direction,
         "action": action,
         "reason": reason,
+        "via": via,
         "path": path,
     }
     logger.info(json.dumps(entry))
@@ -126,6 +140,52 @@ def log_decision(action: str, reason: str, path: str):
             f.write(json.dumps(entry) + "\n")
     except OSError:
         pass
+
+
+async def run_outbound(body: dict, path: str, correlation_id: str) -> dict:
+    """Run outbound PII + Judge checks.
+
+    Returns {"action": "PASS"|"BLOCK", "via": str, "reason": str}
+    """
+    text = extract_text(body)
+    latest = extract_latest_input(body)
+
+    if text:
+        # 1. PII regex scan on latest input only (avoid history contamination)
+        pii_result = pii_scan(latest) if latest else None
+        if pii_result:
+            log_decision(
+                "BLOCK", f"PII detected: {pii_result[1]}", f"/{path}",
+                direction="outbound", via="pii", correlation_id=correlation_id,
+            )
+            return {"action": "BLOCK", "via": "pii", "reason": f"PII detected ({pii_result[1]})"}
+
+        # 2. Judge LLM check (skip for obviously safe messages)
+        if _should_skip_judge(latest):
+            skip_reason = (
+                "no-user-input" if not latest or not latest.strip()
+                else "short-msg" if len(latest) <= SHORT_MSG_CHARS
+                else "no-risk-signal"
+            )
+            log_decision(
+                "PASS", f"skip({skip_reason})", f"/{path}",
+                direction="outbound", via=skip_reason, correlation_id=correlation_id,
+            )
+        else:
+            judge_result = await check_with_judge(latest, LITELLM_URL)
+            judge_ep = judge_result.get("endpoint", "")
+            if not judge_result["safe"]:
+                log_decision(
+                    "BLOCK", f"Judge({judge_ep}): {judge_result['reason']}", f"/{path}",
+                    direction="outbound", via="judge", correlation_id=correlation_id,
+                )
+                return {"action": "BLOCK", "via": "judge", "reason": judge_result["reason"]}
+            log_decision(
+                "PASS", f"clean({judge_ep})", f"/{path}",
+                direction="outbound", via="clean", correlation_id=correlation_id,
+            )
+
+    return {"action": "PASS", "via": "no-text", "reason": ""}
 
 
 @app.get("/health")
@@ -146,47 +206,50 @@ async def proxy(request: Request, path: str):
         except (json.JSONDecodeError, UnicodeDecodeError):
             body = {}
 
-        text = extract_text(body)
-        latest = extract_latest_input(body)
+        correlation_id = uuid.uuid4().hex[:16]
 
-        if text:
-            # 1. PII regex scan on latest input only (avoid history contamination)
-            pii_result = pii_scan(latest) if latest else None
-            if pii_result:
-                log_decision("BLOCK", f"PII detected: {pii_result[1]}", f"/{path}")
-                return Response(
-                    status_code=403,
-                    content=json.dumps(
-                        {"error": f"Blocked: PII detected ({pii_result[1]})"}
-                    ),
-                    media_type="application/json",
-                )
+        outbound_res, inbound_res = await asyncio.gather(
+            run_outbound(body, path, correlation_id),
+            check_inbound(body, LITELLM_URL, correlation_id),
+            return_exceptions=True,
+        )
 
-            # 2. Judge LLM check (skip for obviously safe messages)
-            if _should_skip_judge(latest):
-                skip_reason = (
-                    "no-user-input" if not latest or not latest.strip()
-                    else "short-msg" if len(latest) <= SHORT_MSG_CHARS
-                    else "no-risk-signal"
-                )
-                log_decision("PASS", f"skip({skip_reason})", f"/{path}")
-            else:
-                judge_result = await check_with_judge(latest, LITELLM_URL)
-                judge_ep = judge_result.get("endpoint", "")
-                if not judge_result["safe"]:
-                    log_decision(
-                        "BLOCK",
-                        f"Judge({judge_ep}): {judge_result['reason']}",
-                        f"/{path}",
-                    )
-                    return Response(
-                        status_code=403,
-                        content=json.dumps(
-                            {"error": f"Blocked: {judge_result['reason']}"}
-                        ),
-                        media_type="application/json",
-                    )
-                log_decision("PASS", f"clean({judge_ep})", f"/{path}")
+        if isinstance(outbound_res, Exception):
+            outbound_res = {
+                "action": "BLOCK",
+                "via": "error",
+                "reason": f"outbound error: {type(outbound_res).__name__}",
+            }
+        if isinstance(inbound_res, Exception):
+            inbound_res = {
+                "action": "BLOCK",
+                "via": "error",
+                "reason": f"inbound error: {type(inbound_res).__name__}",
+            }
+
+        # Log inbound result (outbound is logged inside run_outbound)
+        log_decision(
+            inbound_res["action"],
+            inbound_res.get("reason", ""),
+            f"/{path}",
+            direction="inbound",
+            via=inbound_res.get("via", ""),
+            correlation_id=correlation_id,
+        )
+
+        # outbound BLOCK takes priority; inbound BLOCK follows
+        if outbound_res["action"] == "BLOCK":
+            return Response(
+                status_code=403,
+                content=json.dumps({"error": f"Blocked: {outbound_res['reason']}"}),
+                media_type="application/json",
+            )
+        if inbound_res["action"] == "BLOCK":
+            return Response(
+                status_code=403,
+                content=json.dumps({"error": f"Blocked: {inbound_res['reason']}"}),
+                media_type="application/json",
+            )
 
     # Forward request
     forward_headers = {

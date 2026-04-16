@@ -57,6 +57,11 @@ services:
       - PORTABLE_SERVER_URL=${PORTABLE_SERVER_URL:-}
       - JUDGE_PORTABLE_MODEL=${JUDGE_PORTABLE_MODEL:-Qwen2.5-7B-Instruct-Q4_K_M}
       - LOG_DIR=/var/log/openclaw
+      - INBOUND_ENABLED=${INBOUND_ENABLED:-true}
+      - INBOUND_JUDGE_MODE=${INBOUND_JUDGE_MODE:-signal+judge}
+      - INBOUND_MIN_CHARS=${INBOUND_MIN_CHARS:-30}
+      - INBOUND_CACHE_TTL=${INBOUND_CACHE_TTL:-600}
+      - INBOUND_CACHE_MAX=${INBOUND_CACHE_MAX:-1024}
     volumes:
       - ./logs:/var/log/openclaw
     networks:
