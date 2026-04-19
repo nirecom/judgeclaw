@@ -9,7 +9,11 @@ openclaw/canvas/
 openclaw/devices/
 openclaw/identity/
 openclaw/logs/
+openclaw/exec-approvals.json
+openclaw/memory/
 openclaw/openclaw.json.bak
+openclaw/openclaw.json.bak.*
 openclaw/sessions/
 openclaw/tasks/
 openclaw/update-check.json
+/docs/
